@@ -107,12 +107,6 @@
 			<groupId>dev.langchain4j</groupId>
 			<artifactId>langchain4j-redis</artifactId>
 			<version>${langchain4j.version}</version>
-			<exclusions>
-				<exclusion>
-					<groupId>redis.clients</groupId>
-    				<artifactId>jedis</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 
 		<!-- Embedding Model -->
