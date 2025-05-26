@@ -1,4 +1,4 @@
-# Langchain4j와 Qdrant를 사용한 RAG(Retrieval-Augmented Generation) 샘플
+# Langchain4j와 Redis를 사용한 RAG(Retrieval-Augmented Generation) 샘플
 
 ## 환경 설정
 
