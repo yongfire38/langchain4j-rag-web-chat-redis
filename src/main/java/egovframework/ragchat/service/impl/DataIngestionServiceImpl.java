@@ -34,36 +34,36 @@ import lombok.extern.slf4j.Slf4j;
 @Service("DataIngestionService")
 @RequiredArgsConstructor
 public class DataIngestionServiceImpl extends EgovAbstractServiceImpl implements DataIngestionService {
-	
-	private final EmbeddingModel embeddingModel;
-	private final EmbeddingStore<TextSegment> embeddingStore;
-	private final RagConfig ragConfig;
-	
-	@Override
-	public int setupRagChatbot() {
-		// Redis는 인덱스가 없으면 자동으로 생성하므로 별도의 인덱스 생성 과정이 필요 없음
-		log.info("Redis 임베딩 저장소 설정 완료 - 자동 인덱스 생성 지원");
+
+    private final EmbeddingModel embeddingModel;
+    private final EmbeddingStore<TextSegment> embeddingStore;
+    // private final RagConfig ragConfig;
+
+    @Override
+    public int setupRagChatbot() {
+        // Redis는 인덱스가 없으면 자동으로 생성하므로 별도의 인덱스 생성 과정이 필요 없음
+        log.info("Redis 임베딩 저장소 설정 완료 - 자동 인덱스 생성 지원");
 
         // 문서 로드 및 임베딩
         return insertDocuments();
-	}
-	
-	/**
+    }
+
+    /**
      * 문서를 로드하고 임베딩하여 저장.
      * 
      * @return 처리된 문서 수
      */
-	private int insertDocuments() {
-		// 문서를 Chunk로 분할
-		// 각 Chunk는 최대 문자수 1000, Chunk 간 겹치는 문자 수는 150으로 설정 (문맥을 잃지 않게 하기 위함)
-		DocumentSplitter documentSplitter = DocumentSplitters.recursive(1000, 150);
-		
-		List<Document> documents = loadMarkdownDocuments();
-		
-		int processedCount = 0;
+    private int insertDocuments() {
+        // 문서를 Chunk로 분할
+        // 각 Chunk는 최대 문자수 1000, Chunk 간 겹치는 문자 수는 150으로 설정 (문맥을 잃지 않게 하기 위함)
+        DocumentSplitter documentSplitter = DocumentSplitters.recursive(1000, 150);
+
+        List<Document> documents = loadMarkdownDocuments();
+
+        int processedCount = 0;
 
         log.info("총 {}개의 문서를 처리합니다.", documents.size());
-        
+
         for (Document doc : documents) {
             try {
                 List<TextSegment> segments = documentSplitter.split(doc);
@@ -80,21 +80,21 @@ public class DataIngestionServiceImpl extends EgovAbstractServiceImpl implements
         }
 
         log.info("총 {}개 문서 중 {}개 처리 완료", documents.size(), processedCount);
-        
+
         return processedCount;
-	}
-	
-	/**
+    }
+
+    /**
      * 리소스 디렉토리에서 모든 마크다운 파일을 로드.
      * 
      * @return 로드된 문서 목록
      */
-	private List<Document> loadMarkdownDocuments() {
-		List<Document> documents = new ArrayList<>();
-		PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-		
-		try {
-			Resource[] resources = resolver.getResources("classpath:data/*.md");
+    private List<Document> loadMarkdownDocuments() {
+        List<Document> documents = new ArrayList<>();
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+
+        try {
+            Resource[] resources = resolver.getResources("classpath:data/*.md");
             log.info("{}개의 마크다운 파일을 찾았습니다.", resources.length);
 
             for (Resource resource : resources) {
@@ -116,25 +116,25 @@ public class DataIngestionServiceImpl extends EgovAbstractServiceImpl implements
                     log.error("파일 읽기 오류: {}", resource.getFilename(), e);
                 }
             }
-		} catch (IOException e) {
+        } catch (IOException e) {
             log.error("리소스 검색 중 오류 발생", e);
         }
 
         return documents;
-	}
-	
-	/**
+    }
+
+    /**
      * 리소스 파일의 내용을 문자열로 읽기.
      * 
      * @param resource 읽을 리소스
      * @return 파일 내용
      * @throws IOException 파일 읽기 오류 발생 시
      */
-	private String readResourceContent(Resource resource) throws IOException {
+    private String readResourceContent(Resource resource) throws IOException {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
             return reader.lines().collect(Collectors.joining("\n"));
         }
     }
-	
+
 }

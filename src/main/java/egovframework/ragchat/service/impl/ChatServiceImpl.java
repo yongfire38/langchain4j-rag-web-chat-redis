@@ -1,18 +1,25 @@
 package egovframework.ragchat.service.impl;
 
+import java.util.List;
+
 import org.egovframe.rte.fdl.cmmn.EgovAbstractServiceImpl;
 import org.springframework.stereotype.Service;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.input.PromptTemplate;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import egovframework.ragchat.dto.ChatRequest;
 import egovframework.ragchat.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 
 @Slf4j
 @Service("ChatService")
@@ -20,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 public class ChatServiceImpl extends EgovAbstractServiceImpl implements ChatService {
 
 	private final ChatLanguageModel chatLanguageModel;
+	private final StreamingChatLanguageModel streamingChatLanguageModel;
 	private final ContentRetriever contentRetriever;
 
 	@Override
@@ -44,6 +52,26 @@ public class ChatServiceImpl extends EgovAbstractServiceImpl implements ChatServ
 	}
 
 	@Override
+	public Flux<String> generateStreamingRagResponse(ChatRequest chatRequest) {
+		String query = chatRequest.getQuery();
+		log.info("사용자 질의 수신: {}", query);
+
+		try {
+			StreamingRagChatbot streamingRagChatbot = AiServices.builder(StreamingRagChatbot.class)
+					.streamingChatLanguageModel(streamingChatLanguageModel)
+					.contentRetriever(contentRetriever)
+					.build();
+
+			// 리액티브 방식으로 Flux 스트림 반환
+			return streamingRagChatbot.chat(query);
+
+		} catch (Exception e) {
+			log.error("AI 응답 생성 중 오류 발생", e);
+			return Flux.error(e); // 스트림 오류로 전달
+		}
+	}
+
+	@Override
 	public String generateSimpleResponse(ChatRequest chatRequest) {
 		String query = chatRequest.getQuery();
 		log.info("일반 채팅 질의 수신: {}", query);
@@ -63,6 +91,26 @@ public class ChatServiceImpl extends EgovAbstractServiceImpl implements ChatServ
 		}
 	}
 
+	@Override
+	public Flux<String> generateStreamingSimpleResponse(ChatRequest chatRequest) {
+		String query = chatRequest.getQuery();
+		log.info("스트리밍 일반 채팅 질의 수신: {}", query);
+
+		try {
+			// StreamingRagChatbot 사용 (단순히 채팅 모델만 사용)
+			StreamingRagChatbot streamingRagChatbot = AiServices.builder(StreamingRagChatbot.class)
+					.streamingChatLanguageModel(streamingChatLanguageModel)
+					.build();
+
+			// 리액티브 방식으로 Flux 스트림 반환
+			return streamingRagChatbot.chat(query);
+
+		} catch (Exception e) {
+			log.error("AI 응답 생성 중 오류 발생", e);
+			return Flux.error(e);
+		}
+	}
+
 	/**
 	 * RAG 기반 챗봇 인터페이스
 	 */
@@ -74,6 +122,16 @@ public class ChatServiceImpl extends EgovAbstractServiceImpl implements ChatServ
 			""")
 	interface RagChatbot {
 		String chat(String query);
+	}
+
+	@SystemMessage("""
+			    당신은 지식 기반 질의응답 시스템입니다.
+			    사용자의 질문에 대해 제공된 문서 내용을 기반으로 정확하고 도움이 되는 답변을 제공하세요.
+			    제공된 문서에 관련 정보가 없는 경우, 솔직하게 모른다고 답변하세요.
+			    답변은 한국어로 제공하세요.
+			""")
+	interface StreamingRagChatbot {
+		Flux<String> chat(String query);
 	}
 
 	/**

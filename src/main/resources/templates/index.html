@@ -130,6 +130,21 @@
             background-color: #f8d7da;
             color: #721c24;
         }
+        /* 스트리밍 모드 관련 스타일 */
+        .mode-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        .mode-btn {
+            margin: 0 5px;
+            padding: 5px 10px;
+            font-size: 0.9rem;
+        }
+        .mode-btn.active {
+            background-color: #0d6efd;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -140,6 +155,11 @@
             <button id="setup-btn" class="btn btn-primary setup-btn">지식 데이터 설정</button>
             <button id="simple-mode-btn" class="btn btn-outline-secondary setup-btn">일반 채팅 모드</button>
             <div id="setup-status" class="setup-status"></div>
+        </div>
+        
+        <div class="mode-container">
+            <button id="normal-mode-btn" class="btn btn-sm btn-outline-primary mode-btn active">일반 응답 모드</button>
+            <button id="streaming-mode-btn" class="btn btn-sm btn-outline-primary mode-btn">스트리밍 응답 모드</button>
         </div>
         
         <div class="chat-container">
@@ -172,6 +192,12 @@
             
             // 현재 채팅 모드 (rag 또는 simple)
             let chatMode = 'rag';
+            // 응답 모드 (normal 또는 streaming)
+            let responseMode = 'normal';
+            // 현재 활성화된 스트리밍 응답 메시지 요소
+            let currentStreamingMessage = null;
+            // 스트리밍 응답 취소 컨트롤러
+            let abortController = null;
             
             // 서버 상태 확인
             checkServerStatus();
@@ -189,6 +215,18 @@
             
             // 모드 전환 버튼 이벤트 리스너
             simpleModeBtn.addEventListener('click', toggleChatMode);
+            
+            // 응답 모드 전환 버튼 이벤트 리스너
+            const normalModeBtn = document.getElementById('normal-mode-btn');
+            const streamingModeBtn = document.getElementById('streaming-mode-btn');
+            
+            normalModeBtn.addEventListener('click', function() {
+                setResponseMode('normal');
+            });
+            
+            streamingModeBtn.addEventListener('click', function() {
+                setResponseMode('streaming');
+            });
             
             // 서버 상태 확인 함수
             function checkServerStatus() {
@@ -280,10 +318,32 @@
                 });
             }
             
+            // 응답 모드 설정 함수
+            function setResponseMode(mode) {
+                responseMode = mode;
+                
+                // 버튼 스타일 업데이트
+                if (mode === 'normal') {
+                    normalModeBtn.classList.add('active');
+                    streamingModeBtn.classList.remove('active');
+                    addSystemMessage('일반 응답 모드로 전환되었습니다.');
+                } else {
+                    normalModeBtn.classList.remove('active');
+                    streamingModeBtn.classList.add('active');
+                    addSystemMessage('스트리밍 응답 모드로 전환되었습니다. 응답이 생성되는 과정을 실시간으로 볼 수 있습니다.');
+                }
+            }
+            
             // 메시지 전송 함수
             function sendMessage() {
                 const message = userInput.value.trim();
                 if (!message) return;
+                
+                // 진행 중인 스트리밍 응답이 있으면 취소
+                if (abortController) {
+                    abortController.abort();
+                    abortController = null;
+                }
                 
                 // 사용자 메시지 표시
                 addMessage(message, 'user');
@@ -292,35 +352,188 @@
                 // 로딩 표시
                 loading.style.display = 'block';
                 
-                // API 호출 경로 설정 (모드에 따라)
-                const apiUrl = chatMode === 'rag' ? '/api/chat' : '/api/chat/simple';
-                
-                // API 호출
-                fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query: message })
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('API 응답 오류');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('서버 응답:', data);
-                    // AI 응답 표시
-                    addMessage(data.response, 'ai', true);
-                })
-                .catch(error => {
-                    console.error('API 오류:', error);
-                    addMessage('죄송합니다. 오류가 발생했습니다: ' + error.message, 'ai');
-                })
-                .finally(() => {
+                if (responseMode === 'normal') {
+                    // 일반 응답 모드 - 기존 방식으로 API 호출
+                    const apiUrl = chatMode === 'rag' ? '/api/chat' : '/api/chat/simple';
+                    
+                    fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ query: message })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('API 응답 오류');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('서버 응답:', data);
+                        // AI 응답 표시
+                        addMessage(data.response, 'ai', true);
+                    })
+                    .catch(error => {
+                        console.error('API 오류:', error);
+                        addMessage('죄송합니다. 오류가 발생했습니다: ' + error.message, 'ai');
+                    })
+                    .finally(() => {
+                        loading.style.display = 'none';
+                    });
+                } else {
+                    // 스트리밍 응답 모드 - EventSource API를 사용한 SSE 처리
+                    const streamApiUrl = chatMode === 'rag' ? '/api/chat/stream' : '/api/chat/stream/simple';
+                    
+                    // 스트리밍 응답을 위한 빈 메시지 추가
+                    currentStreamingMessage = addEmptyStreamingMessage();
+                    
                     loading.style.display = 'none';
-                });
+                    
+                    // 임시 저장 변수
+                    let fullText = '';
+                    
+                    // EventSource 사용 대신 fetch로 직접 스트리밍 처리
+                    fetch(streamApiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'text/event-stream'
+                        },
+                        body: JSON.stringify({ query: message })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('스트리밍 API 응답 오류');
+                        }
+                        
+                        // 응답 스트림 처리
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder('utf-8');  // UTF-8 인코딩 명시적 지정
+                        
+                        function readStream() {
+                            return reader.read().then(({ value, done }) => {
+                                if (done) {
+                                    console.log('스트림 완료 (응답 종료)');
+                                    convertStreamingToHtml();
+                                    return;
+                                }
+                                
+                                // 새 데이터 처리
+                                const text = decoder.decode(value, { stream: true });
+                                console.log('수신된 데이터:', text);  // 디버깅용 로그
+                                
+                                // [DONE] 표시자 처리
+                                if (text.includes('[DONE]')) {
+                                    console.log('스트리밍 완료 표시자 받음');
+                                    convertStreamingToHtml();
+                                    return;
+                                }
+                                
+                                // 텍스트 추가 및 화면 업데이트
+                                fullText += text;
+                                console.log('수신된 텍스트 추가:', text);
+                                updateStreamingMessage(fullText);
+                                
+                                // 계속 읽기
+                                return readStream();
+                            });
+                        }
+                        
+                        return readStream();
+                    })
+                    .catch(error => {
+                        if (error.name === 'AbortError') {
+                            console.log('스트리밍 요청이 취소되었습니다.');
+                        } else {
+                            console.error('스트리밍 API 오류:', error);
+                            updateStreamingMessage('죄송합니다. 오류가 발생했습니다: ' + error.message);
+                        }
+                    })
+                    .finally(() => {
+                        loading.style.display = 'none';
+                        abortController = null;
+                    });
+                }
+            }
+            
+            // 스트리밍 메시지 추가 함수
+            function addEmptyStreamingMessage() {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message ai-message';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'markdown-content streaming-content';
+                contentDiv.textContent = '';
+                
+                messageDiv.appendChild(contentDiv);
+                chatMessages.appendChild(messageDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                return contentDiv;
+            }
+            
+            // 스트리밍 메시지 업데이트 함수
+            function updateStreamingMessage(text) {
+                if (currentStreamingMessage) {
+                    // 텍스트 전처리 - 깨진 한글 문자를 정상적으로 표시
+                    // 예: ?뿬?꽦 -> 여성, ?븳蹂? -> 한복
+                    let processedText = '';
+                    try {
+                        // 실제 텍스트 처리 시도
+                        processedText = text;
+                        
+                        // 줄바꿈 처리
+                        processedText = processedText.replace(/\n/g, '<br>');
+                        
+                        // 텍스트 표시
+                        currentStreamingMessage.innerHTML = processedText;
+                        
+                        // 스크롤 자동 이동
+                        const chatMessages = document.querySelector('.chat-messages');
+                        if (chatMessages) {
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                        }
+                    } catch (error) {
+                        console.error('텍스트 처리 오류:', error);
+                        // 오류 발생 시 원본 텍스트 그대로 표시
+                        currentStreamingMessage.textContent = text;
+                    }
+                }
+            }
+            
+            // 스트리밍 완료 후 마크다운을 HTML로 변환
+            function convertStreamingToHtml() {
+                if (currentStreamingMessage && currentStreamingMessage.innerHTML.trim() !== '') {
+                    // innerHTML에서 <br> 태그를 줄바꿈으로 변환
+                    const markdownText = currentStreamingMessage.innerHTML.replace(/<br>/g, '\n');
+                    
+                    // 마크다운 변환 API 호출
+                    fetch('/api/markdown/convert', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ markdown: markdownText })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.html) {
+                            // 변환된 HTML 적용
+                            currentStreamingMessage.innerHTML = data.html;
+                            
+                            // 코드 블록 하이라이팅 적용 (선택사항)
+                            if (typeof hljs !== 'undefined') {
+                                document.querySelectorAll('pre code').forEach((block) => {
+                                    hljs.highlightBlock(block);
+                                });
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('마크다운 변환 오류:', error);
+                    });
+                }
             }
             
             // 메시지 추가 함수
